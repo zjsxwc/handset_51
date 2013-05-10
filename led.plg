@@ -1,0 +1,18 @@
+<html>
+<body>
+<pre>
+<h1>µVision Build Log</h1>
+<h2>Project:</h2>
+F:\51minimum\pro_0509\led.uvproj
+Project File Date:  05/10/2013
+
+<h2>Output:</h2>
+Rebuild target 'Target 1'
+compiling main.c...
+main.c(119): warning C280: 'display_0': unreferenced label
+main.c(197): warning C280: 'delay1': unreferenced label
+main.c(202): warning C280: 'delay2': unreferenced label
+linking...
+Program Size: data=80.1 xdata=0 code=1135
+creating hex file from "led"...
+"led" - 0 Error(s), 3 Warning(s).

@@ -1,0 +1,382 @@
+C51 COMPILER V9.51   MAIN                                                                  05/10/2013 09:05:30 PAGE 1   
+
+
+C51 COMPILER V9.51, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: d:\Keil\C51\BIN\C51.EXE main.c BROWSE DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include<reg52.h>
+   2          #include <intrins.h>
+   3          
+   4          typedef unsigned char uint;//uint is a byte long
+   5          
+   6          sbit  MISO  =P2^5;
+   7          sbit  MOSI  =P2^1;
+   8          sbit  SCK   =P2^6;
+   9          sbit  CE    =P2^7;
+  10          sbit  CSN   =P2^2;
+  11          sbit  IRQ   =P3^3;
+  12          
+  13          #define ADR_WIDTH 5 
+  14          #define AW_ADR_WIDTH 0x03
+  15          #define PLOAD_WIDTH  20 
+  16          
+  17          uint  TX_ADDRESS[ADR_WIDTH]= {0x34,0x43,0x10,0x10,0x01};  //address that the RF packets contain
+  18          uint  RX_ADDRESS[ADR_WIDTH]= {0x34,0x43,0x10,0x10,0x01};  //RF packets with *which address* that the pipes 
+             -like to receive 
+  19          
+  20          uint  bdata sta;  
+  21          sbit  RX_DR =sta^6;
+  22          sbit  TX_DS =sta^5;
+  23          sbit  MAX_RT  =sta^4;
+  24          
+  25          bit receive_payload_flag=0;
+  26          
+  27          
+  28          unsigned char led_segment[10]={0x3f,0x06,0x5b,0x4f,0x66,0x6d,0x7d,0x07,0x7f,0x6f};
+  29          
+  30          sbit led_selector_o=P3^0;
+  31          sbit led_selector_oo=P3^1;
+  32          
+  33          char key_o=0,key_oo=0;
+  34          char key_finish_val=0;
+  35          char finish_flag=0;
+  36          
+  37          void key_scan();
+  38          void led_display();
+  39          
+  40          
+  41          //THE COMMANDS
+  42          #define READ_REG        0x00     
+  43          #define WRITE_REG       0x20   
+  44          #define RD_RX_PLOAD     0x61     
+  45          #define WR_TX_PLOAD     0xA0  
+  46          #define W_ACK_PAYLOAD_IN_PRX_PIPE0 0xA8  
+  47          #define FLUSH_TX        0xE1   
+  48          #define FLUSH_RX        0xE2     
+  49          #define REUSE_TX_PL     0xE3     
+  50          #define NOP             0xFF     
+  51          
+  52          //THE REGISTERS' ADDRESSES
+  53          #define CONFIG          0x00   
+  54          #define EN_AA           0x01  
+C51 COMPILER V9.51   MAIN                                                                  05/10/2013 09:05:30 PAGE 2   
+
+  55          #define EN_RXADDR       0x02   
+  56          #define SETUP_AW        0x03   
+  57          #define SETUP_RETR      0x04  
+  58          #define RF_CH           0x05  
+  59          #define RF_SETUP        0x06   
+  60          #define STATUS          0x07   
+  61          #define OBSERVE_TX      0x08   
+  62          #define CD              0x09   
+  63          #define RX_ADDR_P0      0x0A   
+  64          #define RX_ADDR_P1      0x0B  
+  65          #define RX_ADDR_P2      0x0C  
+  66          #define RX_ADDR_P3      0x0D  
+  67          #define RX_ADDR_P4      0x0E  
+  68          #define RX_ADDR_P5      0x0F   
+  69          #define TX_ADDR         0x10   
+  70          #define RX_PW_P0        0x11  
+  71          #define RX_PW_P1        0x12   
+  72          #define RX_PW_P2        0x13   
+  73          #define RX_PW_P3        0x14  
+  74          #define RX_PW_P4        0x15   
+  75          #define RX_PW_P5        0x16   
+  76          #define FIFO_STATUS     0x17  
+  77          
+  78          
+  79          uint SPI_write_byte(uint);
+  80          uint SPI_WRITE_REG_DATA_OR_CMD(uint,uint);
+  81          uint SPI_WRITE_REG_ARRAY(uint ,uint * ,uint );
+  82          void inerDelay_us(uint);
+  83          void SPI_write_addresses();
+  84          uint SPI_READ_REG(uint);
+  85          uint SPI_READ_REG_ARRAY(uint, uint * , uint);
+  86          void init_NRF24L01();
+  87          void TX_mode(uint * );
+  88          void RX_mode(void);
+  89          void TX_RX_mode(uint * );
+  90          void nrf24_irq_init();
+  91          
+  92          uint payload_as_ACK[PLOAD_WIDTH]={5,3,2};
+  93          uint payload_to_rec[PLOAD_WIDTH]={0};
+  94          
+  95          main(){
+  96   1        /*
+  97   1        p3_0=1;
+  98   1        p3_1=0;
+  99   1        P0 = led_segment[4];
+ 100   1        */
+ 101   1        led_selector_o=1;
+ 102   1        led_selector_oo=1;
+ 103   1        key_o=6;
+ 104   1        key_oo=6;
+ 105   1        
+ 106   1        while(1){
+ 107   2          key_scan();
+ 108   2          led_display();
+ 109   2          if(finish_flag==1) break;
+ 110   2          
+ 111   2        }
+ 112   1        
+ 113   1        
+ 114   1        init_NRF24L01();
+ 115   1        SPI_write_addresses();
+ 116   1        RX_mode();
+C51 COMPILER V9.51   MAIN                                                                  05/10/2013 09:05:30 PAGE 3   
+
+ 117   1        payload_as_ACK[0]=key_finish_val;
+ 118   1        nrf24_irq_init();
+ 119   1        display_0:led_selector_o=0;led_selector_oo=0;P0=led_segment[key_finish_val%10];
+ 120   1        
+ 121   1        
+ 122   1        while (1){
+ 123   2          if (receive_payload_flag){
+ 124   3            receive_payload_flag=0;
+ 125   3            SPI_READ_REG_ARRAY(RD_RX_PLOAD,payload_to_rec,PLOAD_WIDTH);
+ 126   3            
+ 127   3            TX_RX_mode(payload_as_ACK);
+ 128   3            //SPI_WRITE_REG_ARRAY(W_ACK_PAYLOAD_IN_PRX_PIPE0,payload_as_ACK,PLOAD_WIDTH);
+ 129   3            if(payload_to_rec[2]==1) {payload_to_rec[2]=0;P0=led_segment[0];}
+ 130   3          }
+ 131   2        
+ 132   2        }
+ 133   1      }
+*** WARNING C280 IN LINE 119 OF main.c: 'display_0': unreferenced label
+ 134          
+ 135          
+ 136          void  key_scan(){
+ 137   1        char temp;
+ 138   1        P1=0xfe;
+ 139   1        temp=P1&0xf0; //read p1.4-->p1.7  to temp
+ 140   1        if (temp!=0xf0){
+ 141   2          switch(temp){
+ 142   3            case 0xe0: key_o=1;key_oo=0;break;
+ 143   3            case 0xd0: key_o=2;key_oo=0;break;
+ 144   3            case 0xb0: key_o=3;key_oo=0;break;
+ 145   3            case 0x70: key_o=4;key_oo=0;break;      
+ 146   3          }
+ 147   2          key_finish_val=key_o+10*key_oo;
+ 148   2        }
+ 149   1        
+ 150   1        P1=0xfd;
+ 151   1        temp=P1&0xf0; //read p1.4-->p1.7  to temp
+ 152   1        if (temp!=0xf0){
+ 153   2          
+ 154   2          switch(temp){
+ 155   3            case 0xe0: key_o=5;key_oo=0;break;
+ 156   3            case 0xd0: key_o=6;key_oo=0;break;
+ 157   3            case 0xb0: key_o=7;key_oo=0;break;
+ 158   3            case 0x70: key_o=8;key_oo=0;break;      
+ 159   3          }
+ 160   2          key_finish_val=key_o+10*key_oo;
+ 161   2        }
+ 162   1        
+ 163   1        P1=0xfb;
+ 164   1        temp=P1&0xf0; //read p1.4-->p1.7  to temp
+ 165   1        if (temp!=0xf0){
+ 166   2          
+ 167   2          switch(temp){
+ 168   3            case 0xe0: key_o=9;key_oo=0;key_finish_val=key_o+10*key_oo;break;
+ 169   3            case 0xd0: key_o=0;key_oo=1;break;
+ 170   3            case 0xb0: key_o=1;key_oo=1;break;
+ 171   3            case 0x70: key_o=2;key_oo=1;break;      
+ 172   3          }
+ 173   2          
+ 174   2        }
+ 175   1        
+ 176   1        P1=0xf7;
+ 177   1        temp=P1&0xf0; //read p1.4-->p1.7  to temp
+C51 COMPILER V9.51   MAIN                                                                  05/10/2013 09:05:30 PAGE 4   
+
+ 178   1        if (temp!=0xf0){
+ 179   2          
+ 180   2          switch(temp){
+ 181   3            case 0xe0: key_o=3;key_oo=1;break;
+ 182   3            case 0xd0: key_o=4;key_oo=1;break;
+ 183   3            case 0xb0: key_o=5;key_oo=1;break;
+ 184   3            case 0x70: key_o=6;key_oo=1;finish_flag=1;break;      
+ 185   3          }
+ 186   2          
+ 187   2        }
+ 188   1        
+ 189   1        return;
+ 190   1      }
+ 191          
+ 192          void led_display(){
+ 193   1        char n;
+ 194   1        led_selector_oo=1;//close oo
+ 195   1        P0=led_segment[key_o];//prepare key value
+ 196   1        led_selector_o=0;//open o
+ 197   1        delay1: n=200;while (n--); 
+ 198   1        
+ 199   1        led_selector_o=1;//close o
+ 200   1        P0=led_segment[key_oo];//prepare key value
+ 201   1        led_selector_oo=0;//open oo
+ 202   1        delay2: n=100;while (n--); 
+ 203   1      
+ 204   1        return;
+ 205   1      }
+*** WARNING C280 IN LINE 197 OF main.c: 'delay1': unreferenced label
+*** WARNING C280 IN LINE 202 OF main.c: 'delay2': unreferenced label
+ 206          
+ 207          
+ 208          
+ 209          void  nrf24_irq_init(){
+ 210   1        IT1=1;
+ 211   1        EX1=1;
+ 212   1      
+ 213   1        PX1=0;
+ 214   1        EA=1;
+ 215   1      
+ 216   1      }
+ 217          
+ 218          void nrf24_irq() interrupt 2
+ 219          {
+ 220   1        sta=SPI_READ_REG(STATUS);
+ 221   1        if (RX_DR){
+ 222   2          receive_payload_flag=1;
+ 223   2        }
+ 224   1        if (TX_DS){
+ 225   2        
+ 226   2        }
+ 227   1        if (MAX_RT){
+ 228   2          SPI_WRITE_REG_DATA_OR_CMD(FLUSH_TX,0);
+ 229   2        }
+ 230   1        SPI_WRITE_REG_DATA_OR_CMD(WRITE_REG+STATUS,sta);
+ 231   1      }
+ 232          
+ 233          
+ 234          //########################################################################################################
+             -#
+ 235          //NRF24 driver
+ 236          //########################################################################################################
+C51 COMPILER V9.51   MAIN                                                                  05/10/2013 09:05:30 PAGE 5   
+
+             -#
+ 237          
+ 238          
+ 239          uint SPI_write_byte(uint the_byte){
+ 240   1        uint count;
+ 241   1        SCK=0;
+ 242   1        for (count=0;count<8;count++){
+ 243   2          MOSI=(the_byte&0x80);//get the left most bit of the byte,and put on MOSI
+ 244   2          the_byte=the_byte<<1;//left move one bit
+ 245   2          SCK=1;              //the SCK upside occurs,nrf24 eats the bit on mosi,nrf24 generates the bit on miso
+ 246   2          the_byte = the_byte|MISO;//the right most bit of the byte become MISO
+ 247   2          SCK=0;
+ 248   2        }
+ 249   1        return the_byte;
+ 250   1      }
+ 251          
+ 252          
+ 253          /*
+ 254              driver  for nrf24
+ 255          */
+ 256          uint SPI_WRITE_REG_DATA_OR_CMD(uint reg,uint data_cmd){
+ 257   1        uint status;
+ 258   1        CSN =0;
+ 259   1        status =SPI_write_byte(reg);
+ 260   1        SPI_write_byte(data_cmd);
+ 261   1        CSN=1;
+ 262   1        return status;
+ 263   1      }
+ 264          
+ 265          uint SPI_WRITE_REG_ARRAY(uint reg,uint * array,uint length){
+ 266   1        uint status,count;
+ 267   1        CSN=0;
+ 268   1        status =SPI_write_byte(reg);
+ 269   1        for (count=0;count<length;count++){
+ 270   2          SPI_write_byte(array[count]);
+ 271   2        }
+ 272   1        CSN=1;
+ 273   1        return status;
+ 274   1      }
+ 275          
+ 276          void inerDelay_us(unsigned char n){
+ 277   1        for(;n>0;n--) _nop_();
+ 278   1      }
+ 279          
+ 280          void SPI_write_addresses(){
+ 281   1        SPI_WRITE_REG_ARRAY(WRITE_REG+TX_ADDR,TX_ADDRESS,ADR_WIDTH);
+ 282   1        SPI_WRITE_REG_ARRAY(WRITE_REG+RX_ADDR_P0,RX_ADDRESS,ADR_WIDTH);
+ 283   1        
+ 284   1      }
+ 285          
+ 286          uint SPI_READ_REG(uint reg){
+ 287   1        uint status,val;
+ 288   1        CSN=0;
+ 289   1        status=SPI_write_byte(READ_REG+reg);//bcs READ_REG =0,so just a form for uinty
+ 290   1        val=SPI_write_byte(READ_REG+0);
+ 291   1        CSN=1;
+ 292   1        return val;
+ 293   1      }
+ 294          
+ 295          uint SPI_READ_REG_ARRAY(uint reg, uint * array, uint length){
+ 296   1        uint status,count;
+ 297   1        
+C51 COMPILER V9.51   MAIN                                                                  05/10/2013 09:05:30 PAGE 6   
+
+ 298   1        CSN = 0;                        
+ 299   1        status = SPI_write_byte(reg);           
+ 300   1        
+ 301   1        for(count=0;count<length;count++)
+ 302   1          array[count] = SPI_write_byte(0);    
+ 303   1        
+ 304   1        CSN = 1;                           
+ 305   1        
+ 306   1        return(status);                    
+ 307   1      }
+ 308          
+ 309          void init_NRF24L01(void){
+ 310   1        inerDelay_us(200);//100 us is okay,but 100 us as redundance
+ 311   1        CE=0;   //let nrf24 stop Trans/Recev packets
+ 312   1        CSN=0;  //let spi starts to work
+ 313   1        SCK=0;  //ready for SCK upside
+ 314   1          
+ 315   1        SPI_WRITE_REG_DATA_OR_CMD(WRITE_REG+EN_RXADDR,0x01);  //allow pipe0 to receive packets
+ 316   1        SPI_WRITE_REG_DATA_OR_CMD(WRITE_REG+EN_AA,0x01);      //allow pipe0 auto ACK,enter the SHOCKBURST MODE
+ 317   1        SPI_WRITE_REG_DATA_OR_CMD(WRITE_REG+RF_CH,0);         //let the channel become 2.4000 GHz
+ 318   1        SPI_WRITE_REG_DATA_OR_CMD(WRITE_REG+RX_PW_P0,PLOAD_WIDTH);//set the payload width of pipe0
+ 319   1        SPI_WRITE_REG_DATA_OR_CMD(WRITE_REG+RF_SETUP,0x07);   //let the data rate 1 Mbps,the power amplifier 0 dBm
+ 320   1        CSN=1;  
+ 321   1      }
+ 322          
+ 323          void TX_mode(uint * payload){
+ 324   1        CE=0;
+ 325   1        SPI_WRITE_REG_DATA_OR_CMD(WRITE_REG + CONFIG, 0x0e);//set nrf24   TX mode
+ 326   1        SPI_WRITE_REG_ARRAY(WR_TX_PLOAD,payload,PLOAD_WIDTH);
+ 327   1        CE=1;
+ 328   1        inerDelay_us(17);//10us is okay ,also 7 us is redundance,then it start to transmit packet
+ 329   1        CE=0;
+ 330   1      }
+ 331          
+ 332          void RX_mode(void){
+ 333   1        CE=0;
+ 334   1        SPI_WRITE_REG_DATA_OR_CMD(WRITE_REG + CONFIG, 0x0f);
+ 335   1        CE=1;
+ 336   1        inerDelay_us(200);//130 us is okay,but 70 us as redundance
+ 337   1      }
+ 338          
+ 339          void TX_RX_mode(uint * payload){
+ 340   1        CE=0;
+ 341   1        TX_mode(payload);
+ 342   1        RX_mode();
+ 343   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    791    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     65      11
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  3 WARNING(S),  0 ERROR(S)

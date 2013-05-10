@@ -1,24 +1,5 @@
 #include<reg52.h>
 #include <intrins.h>
-unsigned char led_segment[10]={0x3f,0x06,0x5b,0x4f,0x66,0x6d,0x7d,0x07,0x7f,0x6f};
-
-
-
-void  key_scan();
-void led_display();
-
-sbit led_selector_o=P3^0;
-sbit led_selector_oo=P3^1;
-
-char key_o=0,key_oo=0;
-
-
-
-
-/*
-	nrf24 \/
-*/
-sbit finish_key_input_flag=P3^7;//let the p3.7 key represent finish key input,and is ready to anwser the master
 
 typedef unsigned char uint;//uint is a byte long
 
@@ -28,8 +9,6 @@ sbit	SCK	  =P2^6;
 sbit	CE	  =P2^7;
 sbit	CSN		=P2^2;
 sbit	IRQ		=P3^3;
-
-sbit	led		=P3^6;
 
 #define ADR_WIDTH 5	
 #define AW_ADR_WIDTH 0x03
@@ -44,6 +23,20 @@ sbit	TX_DS	=sta^5;
 sbit	MAX_RT	=sta^4;
 
 bit receive_payload_flag=0;
+
+
+unsigned char led_segment[10]={0x3f,0x06,0x5b,0x4f,0x66,0x6d,0x7d,0x07,0x7f,0x6f};
+
+sbit led_selector_o=P3^0;
+sbit led_selector_oo=P3^1;
+
+char key_o=0,key_oo=0;
+char key_finish_val=0;
+char finish_flag=0;
+
+void key_scan();
+void led_display();
+
 
 //THE COMMANDS
 #define READ_REG        0x00  	 
@@ -83,7 +76,6 @@ bit receive_payload_flag=0;
 #define FIFO_STATUS     0x17  
 
 
-
 uint SPI_write_byte(uint);
 uint SPI_WRITE_REG_DATA_OR_CMD(uint,uint);
 uint SPI_WRITE_REG_ARRAY(uint ,uint * ,uint );
@@ -97,33 +89,36 @@ void RX_mode(void);
 void TX_RX_mode(uint * );
 void nrf24_irq_init();
 
+uint payload_as_ACK[PLOAD_WIDTH]={5,3,2};
+uint payload_to_rec[PLOAD_WIDTH]={0};
 
-/*
-	nrf24 /\
-*/
-
-void main(){
-	uint payload_as_ACK[PLOAD_WIDTH]={5,3,2};
-	uint payload_to_rec[PLOAD_WIDTH]={0};
-
-	led_selector_o=0;
-	led_selector_oo=0;//high voltage selects the diget
+main(){
+	/*
+	p3_0=1;
+	p3_1=0;
+	P0 = led_segment[4];
+	*/
+	led_selector_o=1;
+	led_selector_oo=1;
+	key_o=6;
+	key_oo=6;
 	
-	while (1){
+	while(1){
 		key_scan();
 		led_display();
-		if (~finish_key_input_flag) break;
-	};
+		if(finish_flag==1) break;
+		
+	}
 	
 	
-	
-
-	payload_as_ACK[0]=key_o+key_oo*10;
-	
-	nrf24_irq_init();
 	init_NRF24L01();
 	SPI_write_addresses();
 	RX_mode();
+	payload_as_ACK[0]=key_finish_val;
+	nrf24_irq_init();
+	display_0:led_selector_o=0;led_selector_oo=0;P0=led_segment[key_finish_val%10];
+	
+	
 	while (1){
 		if (receive_payload_flag){
 			receive_payload_flag=0;
@@ -131,29 +126,10 @@ void main(){
 			
 			TX_RX_mode(payload_as_ACK);
 			//SPI_WRITE_REG_ARRAY(W_ACK_PAYLOAD_IN_PRX_PIPE0,payload_as_ACK,PLOAD_WIDTH);
-			if(payload_to_rec[2]==1) {payload_to_rec[2]=0;led=~led;}
+			if(payload_to_rec[2]==1) {payload_to_rec[2]=0;P0=led_segment[0];}
 		}
 	
 	}
-	
-	
-	
-}
-
-
-void led_display(){
-	char n;
-	led_selector_oo=0;//close oo
-	P0=led_segment[key_o];//prepare key value
-	led_selector_o=1;//open o
-	delay1: n=200;while (n--); 
-	
-	led_selector_o=0;//close o
-	P0=led_segment[key_oo];//prepare key value
-	led_selector_oo=1;//open oo
-	delay2: n=100;while (n--); 
-
-	return;
 }
 
 
@@ -168,53 +144,76 @@ void  key_scan(){
 			case 0xb0: key_o=3;key_oo=0;break;
 			case 0x70: key_o=4;key_oo=0;break;			
 		}
-		return;
+		key_finish_val=key_o+10*key_oo;
 	}
 	
 	P1=0xfd;
 	temp=P1&0xf0; //read p1.4-->p1.7  to temp
 	if (temp!=0xf0){
+		
 		switch(temp){
 			case 0xe0: key_o=5;key_oo=0;break;
 			case 0xd0: key_o=6;key_oo=0;break;
 			case 0xb0: key_o=7;key_oo=0;break;
 			case 0x70: key_o=8;key_oo=0;break;			
 		}
-		return;
+		key_finish_val=key_o+10*key_oo;
 	}
 	
 	P1=0xfb;
 	temp=P1&0xf0; //read p1.4-->p1.7  to temp
 	if (temp!=0xf0){
+		
 		switch(temp){
-			case 0xe0: key_o=9;key_oo=0;break;
+			case 0xe0: key_o=9;key_oo=0;key_finish_val=key_o+10*key_oo;break;
 			case 0xd0: key_o=0;key_oo=1;break;
 			case 0xb0: key_o=1;key_oo=1;break;
 			case 0x70: key_o=2;key_oo=1;break;			
 		}
-		return;
+		
 	}
 	
 	P1=0xf7;
 	temp=P1&0xf0; //read p1.4-->p1.7  to temp
 	if (temp!=0xf0){
+		
 		switch(temp){
 			case 0xe0: key_o=3;key_oo=1;break;
 			case 0xd0: key_o=4;key_oo=1;break;
 			case 0xb0: key_o=5;key_oo=1;break;
-			case 0x70: key_o=6;key_oo=1;break;			
+			case 0x70: key_o=6;key_oo=1;finish_flag=1;break;			
 		}
-		return;
+		
 	}
 	
 	return;
 }
 
+void led_display(){
+  char n;
+	led_selector_oo=1;//close oo
+	P0=led_segment[key_o];//prepare key value
+	led_selector_o=0;//open o
+	delay1: n=200;while (n--); 
+	
+	led_selector_o=1;//close o
+	P0=led_segment[key_oo];//prepare key value
+	led_selector_oo=0;//open oo
+	delay2: n=100;while (n--); 
+
+	return;
+}
 
 
-/*
-	nrf24 \/
-*/
+
+void  nrf24_irq_init(){
+	IT1=1;
+	EX1=1;
+
+	PX1=0;
+	EA=1;
+
+}
 
 void nrf24_irq() interrupt 2
 {
@@ -232,15 +231,10 @@ void nrf24_irq() interrupt 2
 }
 
 
+//#########################################################################################################
+//NRF24 driver
+//#########################################################################################################
 
-void  nrf24_irq_init(){
-	IT1=1;
-	EX1=1;
-
-	PX1=0;
-	EA=1;
-
-}
 
 uint SPI_write_byte(uint the_byte){
 	uint count;
@@ -347,7 +341,3 @@ void TX_RX_mode(uint * payload){
 	TX_mode(payload);
 	RX_mode();
 }
-
-/*
-	nrf24 /\
-*/
